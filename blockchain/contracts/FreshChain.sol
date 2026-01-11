@@ -1,39 +1,72 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
 contract FreshChain {
     
+    struct TrackingEvent {
+        string status;          // "In Transit", "Delivered"
+        string location;        // "NH45, Chennai" (or GPS Coords)
+        uint256 timestamp;
+    }
+
+    struct SensorAlert {
+        string alertType;       // "TEMP_HIGH", "TEMP_LOW", "BACK_NORMAL"
+        bytes encryptedData;    // Temperature data (Encrypted)
+        uint256 timestamp;
+    }
+
     struct Batch {
-        uint256 id;
-        string productName;
-        uint256 price; // Price in Wei (1 ETH = 10^18 Wei)
-        uint256 temperature;
-        bool isDiscounted;
+        string batchId;         // UUID (e.g. "550e8400-e29b...")
+        string productType;     // "Tomatoes"
+        address currentOwner;
+        TrackingEvent[] history;
+        SensorAlert[] alerts;
     }
 
-    mapping(uint256 => Batch) public batches;
-    uint256 public batchCount;
+    mapping(string => Batch) public batches;
+    
+    // 1. Create Batch (Farmer)
+    function createBatch(string memory _batchId, string memory _productType) public {
+        require(bytes(batches[_batchId].batchId).length == 0, "Batch ID exists");
 
-    // Event: This alerts your Frontend when the price changes
-    event PriceUpdated(uint256 batchId, uint256 newPrice, uint256 temperature);
+        Batch storage b = batches[_batchId];
+        b.batchId = _batchId;
+        b.productType = _productType;
+        b.currentOwner = msg.sender;
 
-    // 1. Create a new batch of food (e.g. "Strawberries", 1000)
-    function createBatch(string memory _name, uint256 _price) public {
-        batchCount++;
-        batches[batchCount] = Batch(batchCount, _name, _price, 0, false);
+        // Initial Log
+        b.history.push(TrackingEvent("Harvested", "Origin Farm", block.timestamp));
     }
 
-    // 2. The Sensor calls this function to report temperature
-    function updateTemperature(uint256 _batchId, uint256 _temp) public {
-        Batch storage batch = batches[_batchId];
-        batch.temperature = _temp;
+    // 2. Update Location (Truck/Scanner)
+    function updateLocation(string memory _batchId, string memory _status, string memory _location) public {
+        Batch storage b = batches[_batchId];
+        require(bytes(b.batchId).length != 0, "Batch not found");
+        
+        b.history.push(TrackingEvent(_status, _location, block.timestamp));
+        b.currentOwner = msg.sender;
+    }
 
-        // FEFO LOGIC: If temp > 30 degrees, slash price by 50%
-        if (_temp > 30 && !batch.isDiscounted) {
-            batch.price = batch.price / 2;
-            batch.isDiscounted = true;
-        }
+    // 3. Report Excursion (IoT Sensors)
+    function reportExcursion(string memory _batchId, string memory _alertType, bytes memory _encryptedSensorData) public {
+        Batch storage b = batches[_batchId];
+        require(bytes(b.batchId).length != 0, "Batch not found");
 
-        emit PriceUpdated(_batchId, batch.price, _temp);
+        b.alerts.push(SensorAlert({
+            alertType: _alertType,
+            encryptedData: _encryptedSensorData,
+            timestamp: block.timestamp
+        }));
+    }
+
+    // 4. Fetch Data (Consumer/ML)
+    function getBatchDetails(string memory _batchId) public view returns (
+        string memory batchId, 
+        string memory productType, 
+        TrackingEvent[] memory history, 
+        SensorAlert[] memory alerts
+    ) {
+        Batch storage b = batches[_batchId];
+        return (b.batchId, b.productType, b.history, b.alerts);
     }
 }

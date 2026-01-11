@@ -16,12 +16,12 @@ SENDER_ADDRESS = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
 SENDER_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
 
 # 3. The ABI (The "Manual" for the contract)
-# This tells Python what functions exist.
+# Matches FreshChain.sol
 CONTRACT_ABI = [
     {
         "inputs": [
-            {"internalType": "string", "name": "_name", "type": "string"},
-            {"internalType": "uint256", "name": "_price", "type": "uint256"}
+            {"internalType": "string", "name": "_batchId", "type": "string"},
+            {"internalType": "string", "name": "_productType", "type": "string"}
         ],
         "name": "createBatch",
         "outputs": [],
@@ -30,23 +30,57 @@ CONTRACT_ABI = [
     },
     {
         "inputs": [
-            {"internalType": "uint256", "name": "_batchId", "type": "uint256"},
-            {"internalType": "uint256", "name": "_temp", "type": "uint256"}
+            {"internalType": "string", "name": "_batchId", "type": "string"},
+            {"internalType": "string", "name": "_status", "type": "string"},
+            {"internalType": "string", "name": "_location", "type": "string"}
         ],
-        "name": "updateTemperature",
+        "name": "updateLocation",
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function"
     },
     {
-        "anonymous": False,
         "inputs": [
-            {"indexed": False, "internalType": "uint256", "name": "batchId", "type": "uint256"},
-            {"indexed": False, "internalType": "uint256", "name": "newPrice", "type": "uint256"},
-            {"indexed": False, "internalType": "uint256", "name": "temperature", "type": "uint256"}
+            {"internalType": "string", "name": "_batchId", "type": "string"},
+            {"internalType": "string", "name": "_alertType", "type": "string"},
+            {"internalType": "bytes", "name": "_encryptedSensorData", "type": "bytes"}
         ],
-        "name": "PriceUpdated",
-        "type": "event"
+        "name": "reportExcursion",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "string", "name": "_batchId", "type": "string"}
+        ],
+        "name": "getBatchDetails",
+        "outputs": [
+            {"internalType": "string", "name": "batchId", "type": "string"},
+            {"internalType": "string", "name": "productType", "type": "string"},
+            {
+                "components": [
+                    {"internalType": "string", "name": "status", "type": "string"},
+                    {"internalType": "string", "name": "location", "type": "string"},
+                    {"internalType": "uint256", "name": "timestamp", "type": "uint256"}
+                ],
+                "internalType": "struct FreshChain.TrackingEvent[]",
+                "name": "history",
+                "type": "tuple[]"
+            },
+            {
+                "components": [
+                    {"internalType": "string", "name": "alertType", "type": "string"},
+                    {"internalType": "bytes", "name": "encryptedData", "type": "bytes"},
+                    {"internalType": "uint256", "name": "timestamp", "type": "uint256"}
+                ],
+                "internalType": "struct FreshChain.SensorAlert[]",
+                "name": "alerts",
+                "type": "tuple[]"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
     }
 ]
 
@@ -78,37 +112,48 @@ def main():
         print("Error: Could not connect to Hardhat Node. Is it running?")
         return
 
-    print("--- 🍓 FRESHCHAIN SENSOR SIMULATOR 🍓 ---")
-    
-    # Step A: Create a Batch
-    print("\n1. Creating Batch #1: Strawberries ($1000)...")
-    create_tx = contract.functions.createBatch("Strawberries", 1000)
+    print("--- FRESHCHAIN SENSOR SIMULATOR ---")
+
+    batch_id = "batch-001"
+    product = "Strawberries"
+
+    print(f"\n1. Creating batch '{batch_id}' for {product}...")
+    create_tx = contract.functions.createBatch(batch_id, product)
     send_transaction(create_tx)
-    print("✅ Batch Created on Blockchain.")
-    
-    time.sleep(2)
+    print("✅ Batch created.")
 
-    # Step B: Report Good Temperature (20°C)
-    print("\n2. Sensor Reading: 20°C (Safe)...")
-    temp_tx_safe = contract.functions.updateTemperature(1, 20)
-    receipt = send_transaction(temp_tx_safe)
-    print("✅ Temperature Logged.")
+    time.sleep(1)
 
-    time.sleep(2)
+    print("\n2. Updating location: In Transit @ NH45, Chennai...")
+    location_tx = contract.functions.updateLocation(batch_id, "In Transit", "NH45, Chennai")
+    send_transaction(location_tx)
+    print("✅ Location updated.")
 
-    # Step C: Report Bad Temperature (35°C) -> Should Trigger Discount
-    print("\n3. Sensor Reading: 35°C (DANGER!)...")
-    temp_tx_danger = contract.functions.updateTemperature(1, 35)
-    receipt = send_transaction(temp_tx_danger)
-    
-    # Check logs to see if price updated
-    logs = contract.events.PriceUpdated().process_receipt(receipt)
-    if logs:
-        print(f"🚨 ALERT! Price Drop Detected on Chain!")
-        print(f"   Batch ID: {logs[0]['args']['batchId']}")
-        print(f"   New Price: ${logs[0]['args']['newPrice']} (Discounted from 1000)")
-    else:
-        print("✅ Temperature Logged.")
+    time.sleep(1)
+
+    print("\n3. Reporting temperature excursion (TEMP_HIGH, 35C)...")
+    alert_payload = "TEMP:35C".encode()
+    alert_tx = contract.functions.reportExcursion(batch_id, "TEMP_HIGH", alert_payload)
+    send_transaction(alert_tx)
+    print("✅ Excursion reported.")
+
+    time.sleep(1)
+
+    print("\n4. Fetching batch details...")
+    batch_details = contract.functions.getBatchDetails(batch_id).call()
+
+    batch_id_on_chain, product_type, history, alerts = batch_details
+    print(f"Batch ID: {batch_id_on_chain}")
+    print(f"Product: {product_type}")
+    print("History events:")
+    for evt in history:
+        status, location, ts = evt
+        print(f" - {status} @ {location} (ts: {ts})")
+
+    print("Alerts:")
+    for alert in alerts:
+        alert_type, encrypted, ts = alert
+        print(f" - {alert_type} payload={encrypted.hex()} (ts: {ts})")
 
 if __name__ == "__main__":
     main()
